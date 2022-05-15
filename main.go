@@ -1,27 +1,46 @@
 package main
 
 import (
-	"fmt"
-	"io/ioutil"
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"time"
+
+	"github.com/KaushikG82/MicroservicesGo.git/handlers"
 )
 
 func main() {
-	http.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
-		log.Println("Hello World!")
-		data, err := ioutil.ReadAll(request.Body)
+	Log := log.New(os.Stdout, "product-api", log.LstdFlags)
+	HelloHandler := handlers.NewHello(Log)
+	GoodByeHandler := handlers.NewGoodBye(Log)
+
+	sm := http.NewServeMux()
+	sm.Handle("/", HelloHandler)
+	sm.Handle("/goodbye", GoodByeHandler)
+
+	//http.ListenAndServe(":9090", sm)
+	Server := &http.Server{
+		Addr:         ":9090",
+		Handler:      sm,
+		IdleTimeout:  120 * time.Second,
+		ReadTimeout:  1 * time.Second,
+		WriteTimeout: 1 * time.Second,
+	}
+	go func() {
+		err := Server.ListenAndServe()
 		if err != nil {
-			//writer.WriteHeader(http.StatusBadRequest)
-			//writer.Write([]byte("Ooops, something went wrong!"))
-			http.Error(writer, "Ooops, something went wrong!", http.StatusBadRequest)
-			return
+			Log.Fatal(err)
 		}
-		log.Printf("Data %s", data)
-		fmt.Fprintf(writer, "Hello %s!", data)
-	})
-	http.HandleFunc("/goodbye", func(w http.ResponseWriter, r *http.Request) {
-		log.Println("GoodBye World!")
-	})
-	http.ListenAndServe(":9090", nil)
+	}()
+	sigChan := make(chan os.Signal)
+	signal.Notify(sigChan, os.Interrupt)
+	signal.Notify(sigChan, os.Kill)
+
+	sig := <-sigChan
+	Log.Println("Received terminate, graceful shutdown", sig)
+
+	tc, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	Server.Shutdown(tc)
 }
